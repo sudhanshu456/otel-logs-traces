@@ -1,0 +1,96 @@
+receivers:
+  filelog:
+    include: [ /tmp/shopping-cart-service.log, /tmp/user-service.log ] #include the full path to your log file
+    start_at: end
+    operators:
+      - type: regex_parser
+        regex: '^.*(?P<body>{.*})'
+        output: parsedata
+      - type: json_parser
+        id: parsedata
+        parse_from: attributes.body
+      - type: time_parser
+        parse_from: attributes.timestamp
+        layout_type: strptime
+        layout: '%Y-%m-%dT%H:%M:%S.%fZ'
+      - type: trace_parser
+        trace_id:
+          parse_from: attributes.trace_id
+        span_id:
+          parse_from: attributes.span_id
+        trace_flags:
+          parse_from: attributes.trace_flags
+      - type: remove
+        field: attributes.body
+      - type: remove
+        field: attributes.trace_id
+      - type: remove
+        field: attributes.timestamp
+      - type: remove
+        field: attributes.span_id
+      - type: remove
+        field: attributes.trace_flags
+  otlp:
+    protocols:
+      grpc:
+        endpoint: localhost:4317
+      http:
+        endpoint: localhost:4318
+  hostmetrics:
+    collection_interval: 60s
+    scrapers:
+      # cpu: {} not implemented for macos
+      # disk: {}  not implemented for macos
+      load: {}
+      filesystem: {}
+      memory: {}
+      network: {}
+      paging: {}
+      process:
+        mute_process_name_error: true
+        mute_process_exe_error: true
+        mute_process_io_error: true
+      processes: {}
+  prometheus:
+    config:
+      global:
+        scrape_interval: 60s
+      scrape_configs:
+        - job_name: otel-collector-binary
+          static_configs:
+            - targets:
+              - 0.0.0.0:8888
+processors:
+  batch:
+    send_batch_size: 1000
+    timeout: 10s
+extensions:
+  health_check: {}
+  zpages: {}
+exporters:
+  otlp:
+    endpoint: "ingest.eu.signoz.cloud:443"
+    tls:
+      insecure: false
+    headers:
+      "signoz-access-token": "YOUR_API_KEY_HERE"
+  logging:
+    verbosity: normal
+service:
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8888
+  extensions: [health_check, zpages]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp, logging]
+    logs:
+      receivers: [otlp, filelog]
+      processors: [batch]
+      exporters: [otlp, logging]
